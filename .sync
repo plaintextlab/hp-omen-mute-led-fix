@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# .sync — sync notes to https://github.com/plaintextlab/Notes.git
+# Auto add/remove changes, commit with a generated message, pull --rebase, push.
+
+set -euo pipefail
+
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$REPO_DIR"
+
+# Bail early if this isn't actually a git repo
+if [ ! -d .git ]; then
+    echo "Error: $REPO_DIR is not a git repository." >&2
+    exit 1
+fi
+
+# Stage everything: new, modified, deleted
+git add -A
+
+# Nothing to do?
+if git diff --cached --quiet; then
+    echo "No changes to sync."
+    exit 0
+fi
+
+# Build a commit message from the changed files, not a generic string
+CHANGED_FILES=$(git diff --cached --name-status | awk '{print $2}' | xargs -n1 basename | paste -sd ', ' -)
+TIMESTAMP=$(date '+%Y-%m-%d %H:%M')
+COMMIT_MSG="Sync ${TIMESTAMP}: ${CHANGED_FILES}"
+
+# Truncate if too many files changed at once, to keep the message readable
+if [ ${#COMMIT_MSG} -gt 200 ]; then
+    FILE_COUNT=$(git diff --cached --name-only | wc -l)
+    COMMIT_MSG="Sync ${TIMESTAMP}: ${FILE_COUNT} files changed"
+fi
+
+git commit -m "$COMMIT_MSG"
+
+# Pull first — required if you edit these notes from more than one machine
+echo "Pulling remote changes..."
+if ! git pull --rebase origin main; then
+    echo "Error: rebase failed, likely a real conflict. Resolve manually, then push." >&2
+    exit 1
+fi
+
+echo "Pushing..."
+git push origin main
+
+echo "Synced: $COMMIT_MSG"
